@@ -19,16 +19,20 @@ import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Dropout, Activation, Flatten, Conv2D, MaxPool2D
 from tensorflow.keras.callbacks import TensorBoard
-from sklearn.model_selection import KFold, GroupShuffleSplit
+from sklearn.model_selection import KFold, GroupShuffleSplit, StratifiedKFold
 from sklearn.neural_network import MLPClassifier
 from sklearn import metrics
 from keras.utils import np_utils
 from tensorflow.python.client import device_lib
 from skmultilearn.model_selection import iterative_train_test_split
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
 
 config = tf.compat.v1.ConfigProto()
 config.gpu_options.per_process_gpu_memory_fraction = 0.6
 gpus = tf.config.experimental.list_physical_devices('GPU')
+
+np.random.seed(42)
 
 if gpus:
 
@@ -216,18 +220,30 @@ def train_data(features, labels):
 def train_data_dev(features, labels):
 
     features = features / 255.0
-    y_labels = np_utils.to_categorical(labels)
+    #y_labels = np_utils.to_categorical(labels)
+    y_labels = labels
 
-    kf = KFold(3, shuffle=True, random_state=42)
-    gss = GroupShuffleSplit(n_splits=3, random_state=42)
+    #kf = KFold(3, shuffle=True, random_state=42)
 
     fold = 0
     y_test_values = []
     result_predict = []
 
-    for train, test in kf.split(features, y_labels):
+    #x_train, y_train, x_test, y_test = iterative_train_test_split(features, y_labels, test_size=0.5)
+
+    #x_train, y_train, x_test, y_test = train_test_split(features, y_labels, random_state=42, stratify=y)
+
+    skf = StratifiedKFold(n_splits=10, random_state=42, shuffle=True)
+    #label_encoder = LabelEncoder()
+    #y_labels = label_encoder.fit_transform(labels)
+
+
+    for train, test in skf.split(features, y_labels):
+    #for train, test in iterative_train_test_split(features, y_labels, test_size=0.5):
 
         fold += 1
+
+        y_labels = np_utils.to_categorical(labels)
 
         x_train = features[train]
         y_train = y_labels[train]
@@ -282,6 +298,7 @@ def train_data_dev(features, labels):
         print(y_test.shape)
         print(pred.shape)
 
+        sys.exit(0)
         score = np.sqrt(metrics.accuracy_score(y_test, pred))
         print('ACCURACY SCORE: {}'.format(score))
 
