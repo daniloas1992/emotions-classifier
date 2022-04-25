@@ -5,10 +5,9 @@ os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 
-import datetime
 import time
 import glob
-import cv2
+#import cv2
 import numpy as np
 import pandas as pd
 from enum import Enum
@@ -19,26 +18,29 @@ import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Dropout, Activation, Flatten, Conv2D, MaxPool2D
 from tensorflow.keras.callbacks import TensorBoard
-from sklearn.model_selection import KFold, GroupShuffleSplit, StratifiedKFold
+from sklearn.model_selection import KFold, StratifiedKFold
 from sklearn.neural_network import MLPClassifier
 from sklearn import metrics
-from keras.utils import np_utils
+from tensorflow.keras.utils import to_categorical
+
 from tensorflow.python.client import device_lib
-from skmultilearn.model_selection import iterative_train_test_split
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
+np.random.seed(42)
 
 config = tf.compat.v1.ConfigProto()
 config.gpu_options.per_process_gpu_memory_fraction = 0.6
+
 gpus = tf.config.experimental.list_physical_devices('GPU')
 
-np.random.seed(42)
+config.gpu_options.allow_growth = True
+session = tf.compat.v1.InteractiveSession(config=config)
+
 
 if gpus:
-
     try:
-        for gpu in gpus:
-            tf.config.experimental.set_memory_growth(gpu, True)
+        tf.config.experimental.set_virtual_device_configuration(gpus[0],[tf.config.experimental.VirtualDeviceConfiguration(memory_limit=(1024 * 4))])
+        logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+        print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+
     except RuntimeError as e:
         print(e)
 
@@ -143,10 +145,10 @@ def create_dataset(dataset, dir_files, dimension_resized):
 
             label = get_label(str(emotion_face))
 
-            image = cv2.imread(url_image, cv2.IMREAD_GRAYSCALE)
+            #image = cv2.imread(url_image, cv2.IMREAD_GRAYSCALE)
 
-            image_resized = cv2.resize(image, dimension_resized)
-            dataset.append(Face(image_resized, emotion_face, label))
+            #image_resized = cv2.resize(image, dimension_resized)
+            #dataset.append(Face(image_resized, emotion_face, label))
 
         except Exception as err:
             print('Error creating dataset: ' + err)
@@ -176,7 +178,7 @@ def get_dataset_data(dataset, dimension):
 def train_data(features, labels):
 
     features = features / 255.0
-    y_labels = np_utils.to_categorical(labels)
+    y_labels = to_categorical(labels)
 
     dense_layers = [0, 1, 2, 3, 4, 5]
     sizes_layers = [32, 64, 128, 256]
@@ -220,30 +222,23 @@ def train_data(features, labels):
 def train_data_dev(features, labels):
 
     features = features / 255.0
-    #y_labels = np_utils.to_categorical(labels)
-    y_labels = labels
-
-    #kf = KFold(3, shuffle=True, random_state=42)
 
     fold = 0
     y_test_values = []
-    result_predict = []
+    '''result_predict = []
 
-    #x_train, y_train, x_test, y_test = iterative_train_test_split(features, y_labels, test_size=0.5)
-
-    #x_train, y_train, x_test, y_test = train_test_split(features, y_labels, random_state=42, stratify=y)
+    fscore = []
+    precision = []
+    recall = []
+    roc = []'''
 
     skf = StratifiedKFold(n_splits=10, random_state=42, shuffle=True)
-    #label_encoder = LabelEncoder()
-    #y_labels = label_encoder.fit_transform(labels)
 
-
-    for train, test in skf.split(features, y_labels):
-    #for train, test in iterative_train_test_split(features, y_labels, test_size=0.5):
+    for train, test in skf.split(features, labels):
 
         fold += 1
 
-        y_labels = np_utils.to_categorical(labels)
+        y_labels = to_categorical(labels)
 
         x_train = features[train]
         y_train = y_labels[train]
@@ -273,40 +268,45 @@ def train_data_dev(features, labels):
 
         print(model.summary())
 
-        tensorboard = TensorBoard(log_dir='logsDev/{}'.format('Training_Model_Dev'))
-        model.fit(x_train, y_train, batch_size=512, epochs=3, validation_split=0.1, callbacks=[tensorboard])
+        tensorboard = TensorBoard(log_dir='logsDev/{}_{}'.format('Training_Model_Dev', str(fold)))
+        model.fit(x_train, y_train, batch_size=512, epochs=50, validation_split=0.1, callbacks=[tensorboard])
 
-        pred = model.predict(x_test)
+        y_pred = model.predict(x_test)
 
         y_test_values.append(y_test)
-        result_predict.append(pred)
+        #result_predict.append(y_pred)
 
-        confusion_matrix = metrics.confusion_matrix(y_test.argmax(axis=1), pred.argmax(axis=1))
+        confusion_matrix = metrics.confusion_matrix(y_test.argmax(axis=1), y_pred.argmax(axis=1))
 
-        plt.figure(figsize=(20, 20))
+        plt.figure(figsize=(12, 12))
         plt.title('TRAINNING FOLD {} - X: {} - Y: {} '.format(str(fold), str(x_train.shape), str(y_train.shape)))
-        columns = [f'Predicted {label}' for label in ('Afraid', 'Angry', 'Disgusted', 'Happy', 'Neutral', 'Sad', 'Surprised')]
+        columns = [f'Pred {label}' for label in ('Afraid', 'Angry', 'Disgusted', 'Happy', 'Neutral', 'Sad', 'Surprised')]
         indices = [f'Actual {label}' for label in ('Afraid', 'Angry', 'Disgusted', 'Happy', 'Neutral', 'Sad', 'Surprised')]
 
         table = pd.DataFrame(confusion_matrix, columns=columns, index=indices)
         sns.heatmap(table, annot=True, fmt='d')
+        plt.savefig('images/image_{}.png'.format(str(datetime.now())))
+        plt.close()
 
-        #sns.heatmap(confusion_matrix, annot=True)
-        plt.yticks(rotation=90)
-        plt.show()
-        sys.exit(0)
-        print(y_test.shape)
-        print(pred.shape)
+        '''y_test = np.argmax(y_test, axis=-1)
+        y_pred = np.argmax(y_pred, axis=-1)
+
+        fscore.append(metrics.f1_score(y_test, y_pred))
+        precision.append(metrics.precision_score(y_test, y_pred))
+        recall.append(metrics.recall_score(y_test, y_pred))
+        roc.append(metrics.roc_auc_score(y_test, y_pred))
 
         sys.exit(0)
-        score = np.sqrt(metrics.accuracy_score(y_test, pred))
-        print('ACCURACY SCORE: {}'.format(score))
+        #score = np.sqrt(metrics.accuracy_score(y_test, pred))
+        #print('ACCURACY SCORE: {}'.format(score))'''
+
+    #return {'test_f1': fscore, 'test_precision': precision, 'test_recall': recall, 'test_roc_auc': roc}
 
 
 def mlp_classifier(features, labels):
 
     features = features / 255.0
-    y_labels = np_utils.to_categorical(labels)
+    y_labels = to_categorical(labels)
     mlp = MLPClassifier(hidden_layer_sizes=(7,), max_iter=25, tol=0.00001, solver='adam', activation='relu')
 
     kf = KFold(3, shuffle=True, random_state=42)
@@ -328,6 +328,16 @@ def mlp_classifier(features, labels):
 
         confusion_matrix = metrics.confusion_matrix(y_test.argmax(axis=1), pred.argmax(axis=1))
         print(confusion_matrix)
+
+
+'''def show_result(result):
+    print('Test     ROC: %f' % (reduce(lambda x, y: x + y, result['score']['test_roc_auc']) / 10))
+    print('Test      F1: %f' % (reduce(lambda x, y: x + y, result['score']['test_f1']) / 10))
+    print('Test      F1: ' + str(result['score']['test_f1']))
+    print('Test      Precision: ' + str(result['score']['test_precision']))
+    print('Test      Recall: ' + str(result['score']['test_recall']))
+    print('Best      F1: ' + str(result['score']['best_f1']))
+    print('Best      F1: %f' % (reduce(lambda x, y: x + y, result['score']['best_f1']) / 10))'''
 
 
 def main():
@@ -376,7 +386,8 @@ def main():
                 if dev:
                     print('\nMode DEV: Training dataset...')
                     #mlp_classifier(features, labels)
-                    train_data_dev(features, labels)
+                    result = train_data_dev(features, labels)
+                    #show_result(result)
                 else:
                     print('\nTraining dataset...')
                     train_data(features, labels)
